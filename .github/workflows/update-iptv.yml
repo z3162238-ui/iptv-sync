@@ -34,18 +34,25 @@ jobs:
       - name: Ensure data dir
         run: mkdir -p data
 
-      - name: Download iptv-org CSVs (fail if channels missing)
+      - name: Download iptv-org CSVs (verbose / fail if channels missing; streams fallback to main)
         run: |
           set -euo pipefail
+          set -x
           CH_URL="${{ github.event.inputs.channels_url || '' }}"
           ST_URL="${{ github.event.inputs.streams_url || '' }}"
-          # default to pinned commit or to main if not provided
+          # default pinned commit for channels (reproducible)
           if [ -z "$CH_URL" ]; then
             CH_URL="https://raw.githubusercontent.com/iptv-org/database/c1daa31fa3aba48160fc6fa8d5863df261dfd092/data/channels.csv"
           fi
+          # for streams try the same pinned commit, but fall back to main if missing
           if [ -z "$ST_URL" ]; then
-            ST_URL="https://raw.githubusercontent.com/iptv-org/database/c1daa31fa3aba48160fc6fa8d5863df261dfd092/data/streams.csv"
+            ST_URL_PINNED="https://raw.githubusercontent.com/iptv-org/database/c1daa31fa3aba48160fc6fa8d5863df261dfd092/data/streams.csv"
+            ST_URL_MAIN="https://raw.githubusercontent.com/iptv-org/database/main/data/streams.csv"
+          else
+            ST_URL_PINNED="$ST_URL"
+            ST_URL_MAIN=""
           fi
+
           echo "Fetching channels from $CH_URL"
           if ! curl -fsSL "$CH_URL" -o data/channels.csv; then
             echo "ERROR: failed to fetch channels.csv from $CH_URL"
@@ -53,12 +60,37 @@ jobs:
           fi
           echo "Fetched channels.csv (size: $(stat -c%s data/channels.csv) bytes)"
           head -n 5 data/channels.csv || true
-          echo "Fetching streams from $ST_URL"
-          if ! curl -fsSL "$ST_URL" -o data/streams.csv; then
-            echo "Warning: streams.csv not available from $ST_URL; continuing without it"
+
+          # Attempt pinned streams URL first, then fallback to main
+          if [ -n "${ST_URL_PINNED:-}" ]; then
+            echo "Trying streams from pinned commit: $ST_URL_PINNED"
+            HTTP_CODE=$(curl -s -w "%{http_code}" -o data/streams.csv.tmp "$ST_URL_PINNED" || true)
+            if [ "$HTTP_CODE" = "200" ]; then
+              mv data/streams.csv.tmp data/streams.csv
+              echo "Fetched streams.csv from pinned commit (size: $(stat -c%s data/streams.csv) bytes)"
+              head -n 5 data/streams.csv || true
+            else
+              echo "Pinned streams.csv not present (HTTP $HTTP_CODE); removing tmp and trying main"
+              rm -f data/streams.csv.tmp || true
+              if [ -n "${ST_URL_MAIN:-}" ]; then
+                echo "Trying streams from main: $ST_URL_MAIN"
+                if curl -fsSL "$ST_URL_MAIN" -o data/streams.csv; then
+                  echo "Fetched streams.csv from main (size: $(stat -c%s data/streams.csv) bytes)"
+                  head -n 5 data/streams.csv || true
+                else
+                  echo "streams.csv not available from main either; continuing without streams.csv"
+                fi
+              fi
+            fi
           else
-            echo "Fetched streams.csv (size: $(stat -c%s data/streams.csv) bytes)"
-            head -n 5 data/streams.csv || true
+            # user supplied a streams_url input — try it
+            echo "Using user-provided streams_url: $ST_URL"
+            if curl -fsSL "$ST_URL" -o data/streams.csv; then
+              echo "Fetched streams.csv from streams_url (size: $(stat -c%s data/streams.csv) bytes)"
+              head -n 5 data/streams.csv || true
+            else
+              echo "streams.csv not available from provided streams_url; continuing without streams.csv"
+            fi
           fi
 
       - name: Set up Node.js

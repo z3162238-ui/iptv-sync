@@ -34,29 +34,40 @@ jobs:
       - name: Ensure data dir
         run: mkdir -p data
 
-      - name: Download iptv-org CSVs (if not present)
+      - name: Download iptv-org CSVs (fail if channels missing)
         run: |
-          set -e
+          set -euo pipefail
           CH_URL="${{ github.event.inputs.channels_url || '' }}"
           ST_URL="${{ github.event.inputs.streams_url || '' }}"
+          # default to pinned commit or to main if not provided
           if [ -z "$CH_URL" ]; then
-            CH_URL="https://raw.githubusercontent.com/iptv-org/database/main/data/channels.csv"
+            CH_URL="https://raw.githubusercontent.com/iptv-org/database/c1daa31fa3aba48160fc6fa8d5863df261dfd092/data/channels.csv"
           fi
           if [ -z "$ST_URL" ]; then
-            ST_URL="https://raw.githubusercontent.com/iptv-org/database/main/data/streams.csv"
+            ST_URL="https://raw.githubusercontent.com/iptv-org/database/c1daa31fa3aba48160fc6fa8d5863df261dfd092/data/streams.csv"
           fi
           echo "Fetching channels from $CH_URL"
-          curl -fsSL "$CH_URL" -o data/channels.csv || (echo "Failed to fetch channels.csv" && exit 0)
+          if ! curl -fsSL "$CH_URL" -o data/channels.csv; then
+            echo "ERROR: failed to fetch channels.csv from $CH_URL"
+            exit 1
+          fi
+          echo "Fetched channels.csv (size: $(stat -c%s data/channels.csv) bytes)"
+          head -n 5 data/channels.csv || true
           echo "Fetching streams from $ST_URL"
-          curl -fsSL "$ST_URL" -o data/streams.csv || echo "streams.csv not available - continuing"
+          if ! curl -fsSL "$ST_URL" -o data/streams.csv; then
+            echo "Warning: streams.csv not available from $ST_URL; continuing without it"
+          else
+            echo "Fetched streams.csv (size: $(stat -c%s data/streams.csv) bytes)"
+            head -n 5 data/streams.csv || true
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Generate index.m3u
         env:
@@ -65,13 +76,24 @@ jobs:
           CHANNELS_URL: ${{ github.event.inputs.channels_url }}
           STREAMS_URL: ${{ github.event.inputs.streams_url }}
         run: |
+          echo "Node version: $(node -v); npm: $(npm -v)"
+          node --version
           node scripts/generate_m3u.js --channels data/channels.csv --streams data/streams.csv --output index.m3u
+
+      - name: Show generated file (if present)
+        run: |
+          if [ -f index.m3u ]; then
+            echo "index.m3u size: $(stat -c%s index.m3u) bytes"
+            head -n 40 index.m3u || true
+          else
+            echo "index.m3u not created"
+          fi
 
       - name: Commit and push if changed
         run: |
           git config --local user.name "github-actions[bot]"
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git add index.m3u
+          git add index.m3u || true
           if ! git diff --cached --exit-code; then
             git commit -m "Auto-refresh IPTV playlist [skip ci]" || true
             git push

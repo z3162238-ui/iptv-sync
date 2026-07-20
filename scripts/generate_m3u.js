@@ -12,7 +12,18 @@
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const parse = require('csv-parse/sync');
+// csv-parse sync import — be robust to module export shapes
+let parse;
+const _parseModule = require('csv-parse/sync');
+if (typeof _parseModule === 'function') {
+  parse = _parseModule;
+} else if (_parseModule && typeof _parseModule.parse === 'function') {
+  parse = _parseModule.parse;
+} else if (_parseModule && typeof _parseModule.default === 'function') {
+  parse = _parseModule.default;
+} else {
+  throw new Error('csv-parse/sync: parse function not found');
+};
 
 const argv = require('minimist')(process.argv.slice(2), {
   string: ['channels', 'streams', 'output', 'filter', 'filter-by', 'channels-url', 'streams-url'],

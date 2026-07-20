@@ -11,19 +11,19 @@
  */
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
-// csv-parse sync import — be robust to module export shapes
-let parse;
-const _parseModule = require('csv-parse/sync');
-if (typeof _parseModule === 'function') {
-  parse = _parseModule;
-} else if (_parseModule && typeof _parseModule.parse === 'function') {
-  parse = _parseModule.parse;
-} else if (_parseModule && typeof _parseModule.default === 'function') {
-  parse = _parseModule.default;
-} else {
-  throw new Error('csv-parse/sync: parse function not found');
-};
++const axios = require('axios');
++// csv-parse sync import — be robust to module export shapes
++let parse;
++const _parseModule = require('csv-parse/sync');
++if (typeof _parseModule === 'function') {
++  parse = _parseModule;
++} else if (_parseModule && typeof _parseModule.parse === 'function') {
++  parse = _parseModule.parse;
++} else if (_parseModule && typeof _parseModule.default === 'function') {
++  parse = _parseModule.default;
++} else {
++  throw new Error('csv-parse/sync: parse function not found');
++}
 
 const argv = require('minimist')(process.argv.slice(2), {
   string: ['channels', 'streams', 'output', 'filter', 'filter-by', 'channels-url', 'streams-url'],
@@ -42,14 +42,16 @@ const outputPath = argv.output || 'index.m3u';
 const filterInput = argv.filter || process.env.FILTER || '';
 const filterBy = (argv['filter-by'] || process.env.FILTER_BY || 'id').toLowerCase();
 
-function readCsvFromFileOrUrl(localPath, url) {
-  if (fs.existsSync(localPath)) {
-    const raw = fs.readFileSync(localPath, 'utf8');
-    return parse(raw, { columns: true, skip_empty_lines: true });
-  }
-  // fetch url
-  return axios.get(url, { timeout: 20000 }).then(r => parse(r.data, { columns: true, skip_empty_lines: true }));
-}
++async function readCsvFromFileOrUrl(localPath, url) {
++  // Always return a Promise (async function) so callers can .catch()
++  if (fs.existsSync(localPath)) {
++    const raw = fs.readFileSync(localPath, 'utf8');
++    return parse(raw, { columns: true, skip_empty_lines: true });
++  }
++  // fetch url
++  const r = await axios.get(url, { timeout: 20000 });
++  return parse(r.data, { columns: true, skip_empty_lines: true });
++}
 
 function detectField(obj, candidates) {
   const keys = Object.keys(obj);

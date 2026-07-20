@@ -2,28 +2,30 @@
 /**
  * Generate an M3U playlist by joining channels.csv + streams.csv
  *
- * Usage examples:
+ * Usage:
  *  node scripts/generate_m3u.js --channels data/channels.csv --streams data/streams.csv --output index.m3u
- *  CHANNELS_URL=... STREAMS_URL=... node scripts/generate_m3u.js --output index.m3u
  *
  * Filtering: pass --filter "id1,id2" and optionally --filter-by id|name|country (default id).
  * Or set env FILTER and FILTER_BY.
  */
 const fs = require('fs');
 const path = require('path');
-+const axios = require('axios');
-+// csv-parse sync import — be robust to module export shapes
-+let parse;
-+const _parseModule = require('csv-parse/sync');
-+if (typeof _parseModule === 'function') {
-+  parse = _parseModule;
-+} else if (_parseModule && typeof _parseModule.parse === 'function') {
-+  parse = _parseModule.parse;
-+} else if (_parseModule && typeof _parseModule.default === 'function') {
-+  parse = _parseModule.default;
-+} else {
-+  throw new Error('csv-parse/sync: parse function not found');
-+}
+
+// axios for fetching remote CSVs
+const axios = require('axios');
+
+// csv-parse sync import — be robust to module export shapes
+let parse;
+const _parseModule = require('csv-parse/sync');
+if (typeof _parseModule === 'function') {
+  parse = _parseModule;
+} else if (_parseModule && typeof _parseModule.parse === 'function') {
+  parse = _parseModule.parse;
+} else if (_parseModule && typeof _parseModule.default === 'function') {
+  parse = _parseModule.default;
+} else {
+  throw new Error('csv-parse/sync: parse function not found');
+}
 
 const argv = require('minimist')(process.argv.slice(2), {
   string: ['channels', 'streams', 'output', 'filter', 'filter-by', 'channels-url', 'streams-url'],
@@ -42,18 +44,18 @@ const outputPath = argv.output || 'index.m3u';
 const filterInput = argv.filter || process.env.FILTER || '';
 const filterBy = (argv['filter-by'] || process.env.FILTER_BY || 'id').toLowerCase();
 
-+async function readCsvFromFileOrUrl(localPath, url) {
-+  // Always return a Promise (async function) so callers can .catch()
-+  if (fs.existsSync(localPath)) {
-+    const raw = fs.readFileSync(localPath, 'utf8');
-+    return parse(raw, { columns: true, skip_empty_lines: true });
-+  }
-+  // fetch url
-+  const r = await axios.get(url, { timeout: 20000 });
-+  return parse(r.data, { columns: true, skip_empty_lines: true });
-+}
+async function readCsvFromFileOrUrl(localPath, url) {
+  // Always async so callers can .catch()
+  if (fs.existsSync(localPath)) {
+    const raw = fs.readFileSync(localPath, 'utf8');
+    return parse(raw, { columns: true, skip_empty_lines: true });
+  }
+  const r = await axios.get(url, { timeout: 20000 });
+  return parse(r.data, { columns: true, skip_empty_lines: true });
+}
 
 function detectField(obj, candidates) {
+  if (!obj) return null;
   const keys = Object.keys(obj);
   for (const c of candidates) {
     const lc = c.toLowerCase();
@@ -93,14 +95,16 @@ function chooseStreamUrl(streams) {
     const score = q => (q.includes('1080')?100:(q.includes('720')?80:(q.includes('hd')?70:(q.includes('480')?50:10))));
     return score(qb) - score(qa);
   });
-  return good[0][detectField(good[0], ['url','stream','link','uri'])];
+  const chosen = good[0];
+  const chosenUrlField = detectField(chosen, ['url','stream','link','uri']);
+  return chosenUrlField ? chosen[chosenUrlField] : null;
 }
 
 (async () => {
   try {
     const [channels, streams] = await Promise.all([
-      readCsvFromFileOrUrl(channelsPath, CHANNELS_URL).catch(e => { console.error('channels fetch failed', e.message); return []; }),
-      readCsvFromFileOrUrl(streamsPath, STREAMS_URL).catch(e => { console.error('streams fetch failed', e.message); return []; })
+      readCsvFromFileOrUrl(channelsPath, CHANNELS_URL).catch(e => { console.error('channels fetch failed', e && e.message ? e.message : e); return []; }),
+      readCsvFromFileOrUrl(streamsPath, STREAMS_URL).catch(e => { console.error('streams fetch failed', e && e.message ? e.message : e); return []; })
     ]);
 
     if (!channels || channels.length === 0) {

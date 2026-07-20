@@ -12,7 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const parse = require('csv-parse/lib/sync');
+const parse = require('csv-parse/sync');
 
 const argv = require('minimist')(process.argv.slice(2), {
   string: ['channels', 'streams', 'output', 'filter', 'filter-by', 'channels-url', 'streams-url'],
